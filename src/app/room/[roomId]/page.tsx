@@ -1,11 +1,15 @@
 "use client"
 
+import { useUsername } from "@/hooks/use-username";
+import { client } from "@/lib/client";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import { useRef, useState } from "react";
 
 export default function roomId(){
+    const username=useUsername()
     const params=useParams()
-    const roomid=params.roomId
+const { roomId } = params as { roomId: string };
     const [cop,setcop]=useState("Copy")
     const copybutton=()=>{
         const url=window.location.href
@@ -20,6 +24,26 @@ export default function roomId(){
         return `${mins.toString()}-${secs.toString().padStart(2,"0")}`
 
     }
+    const {mutate:sendMessage,isPending}=useMutation({
+        
+        mutationFn:async({text}:{text:string})=>{
+            await client.messages.post({sender:username,text},{query:{ roomId } })
+        }
+    })
+
+    const {data:messages}=useQuery({
+        queryKey:["messages",roomId],
+        queryFn:async()=>{
+            const res=await client.messages.get({
+                query:{roomId}
+            })
+            console.log("Oh it does run ")
+            return res.data 
+            
+            
+        }
+    })
+
     const [input,setInput]=useState("")
     const inputref=useRef<HTMLInputElement>(null)
     return (
@@ -29,7 +53,7 @@ export default function roomId(){
                     <div className="flex flex-col ">
                         <span className="text-es text-zinc-500 uppercase">RoomId</span>
                         <div className="flex items-center gap-2 ">
-                            <span className="font-bold text-green-500 ">{roomid}</span>
+                            <span className="font-bold text-green-500 ">{roomId}</span>
                             <button onClick={()=>copybutton()}  className="text-[10px] bg-zinc-800 hover:bg-zinc-700 px-2 py-0.5 rounded text-zinc-400 hover:text-zinc-200 transition-color">{cop}</button>
 
                         </div>
@@ -44,7 +68,29 @@ export default function roomId(){
                     <span className="group-hover:animate-pulse">💣 </span>
                     DESTROY NOW </button>
             </header>
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin"></div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin">
+                {messages?.messages.length===0&&(
+                    <div className="flex items-center justify-center h-full">
+                        <p className="font-mono text-zinc-600 text-sm">No messages Yet</p>
+                    </div>
+                )}
+                {messages?.messages.map((msg)=>(
+                    <div key={msg.id} className="flex flex-col items-start">
+                        <div className="max-w-[80%] group">
+                            <div className="flex items-baseline gap-3  mb-1">
+                                <span className={`font-bold text-xs ${msg.sender===username?"text-green-100":"text-green-500"}`}>
+                                    {msg.sender===username?"YOU":msg.sender}
+                                </span>
+                                <span className="text-[10px] text-zinc-500">{msg.timeStamp}</span>
+                            </div>
+                            <p className="text-sm text-zinc-300 leading-relaxed break-all">
+                                {msg.text}
+                            </p>
+                        </div>
+
+                    </div>
+                ))}
+            </div>
             <div className="p-4 border-t border-zinc-800 bg-zinc-900/30">
                 <div className="flex gap-4">  
                 <div className="flex-1 relative group">
@@ -56,6 +102,7 @@ export default function roomId(){
                     onChange={(e)=>setInput(e.target.value)}
                     onKeyDown={(e)=>{
                         if(e.key==="Enter"&&input.trim()){
+                            sendMessage({text:input})
                             inputref.current?.focus()
                         }
                     }}
@@ -63,7 +110,12 @@ export default function roomId(){
                     className="w-full bg-black border border-zinc-800. focus:border-zinc-700 focus-outline-none transition-colors text-zinc-100 placeholder:text-zinc-700 py-3 pl-8 pr-4 text-sm"></input>
 
                 </div>
-                <button className="bg-zinc-800 text-zinc-400 px-6 text-sm font-bold transition-all  disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"> SEND</button>
+                <button className="bg-zinc-800 text-zinc-400 px-6 text-sm font-bold transition-all  disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                onClick={()=>{
+                    inputref.current?.focus()
+                }}
+                disabled={!input.trim()||isPending}>
+                        SEND</button>
                 </div>
             </div>
         </main>
