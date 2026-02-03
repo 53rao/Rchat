@@ -3,10 +3,14 @@
 import { useUsername } from "@/hooks/use-username";
 import { client } from "@/lib/client";
 import { useMutation, useQuery } from "@tanstack/react-query";
+
 import { useParams } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useRealtime } from "@/lib/realtime-client";
+import { useRouter } from "next/navigation";
 
 export default function roomId(){
+    const router=useRouter()
     const username=useUsername()
     const params=useParams()
 const { roomId } = params as { roomId: string };
@@ -17,7 +21,7 @@ const { roomId } = params as { roomId: string };
         setcop("Copied")
         setTimeout(()=>setcop("Copy"),2000)
     }
-    const [timeRemaining,setTimeRemaining]=useState<number|null>(55)
+    const [timeRemaining,setTimeRemaining]=useState<number|null>(5)
     function formatTime(seconds:number){
         const mins=Math.floor(seconds/60)
         const secs=seconds%60
@@ -28,10 +32,18 @@ const { roomId } = params as { roomId: string };
         
         mutationFn:async({text}:{text:string})=>{
             await client.messages.post({sender:username,text},{query:{ roomId } })
+             setInput("");
+        }
+       
+        
+    })
+    const {mutate:destroyroom}=useMutation({
+        mutationFn:async()=>{
+            await client.room.delete(null,{query:{roomId}})
         }
     })
 
-    const {data:messages}=useQuery({
+    const {data:messages,refetch}=useQuery({
         queryKey:["messages",roomId],
         queryFn:async()=>{
             const res=await client.messages.get({
@@ -43,6 +55,48 @@ const { roomId } = params as { roomId: string };
             
         }
     })
+    useRealtime({
+        channels:[roomId],
+        events:["chat.message","chat.destroy"],
+        onData:({event})=>{
+            if(event=="chat.message"){
+                refetch()
+            }
+            if(event==="chat.destroy"){
+                router.push("/?destroyed=true")
+            }
+        }
+    })
+
+    const {data:ttlData}=useQuery({
+        queryKey:["ttl",roomId],
+        queryFn:async()=>{
+            const res=await client.room.ttl.get({
+                query:{roomId}
+            })
+            return res.data
+        }
+    })
+    useEffect(()=>{
+        if(ttlData?.ttl!==undefined)
+            setTimeRemaining(ttlData.ttl)
+    },[ttlData])
+    useEffect(()=>{
+        if(timeRemaining===null||timeRemaining<0)
+                return 
+        if(timeRemaining===0)
+            router.push("/?destroyed=true")
+        const interval=setInterval(()=>{
+            setTimeRemaining((prev)=>{
+                if(prev===null||prev<=1){
+                    clearInterval(interval)
+                    return 0
+                }
+                return prev-1
+            })
+        },1000)
+        return ()=>clearInterval(interval)
+    },[timeRemaining,router])
 
     const [input,setInput]=useState("")
     const inputref=useRef<HTMLInputElement>(null)
@@ -60,11 +114,11 @@ const { roomId } = params as { roomId: string };
                     </div>
                     <div className="h-8 w-px bg-zinc-800"/>
                     <div className="flex flex-col ">
-                        <span className="text-xs text-zinc-500 uppercase">SelfDestruct</span>
+                        <span className="text-xs text-zinc-500 uppercase" onClick={()=>destroyroom()}>SelfDestruct</span>
                         <span className={`text-sm font-bold flex items-center gap-2 ${timeRemaining!=null&&timeRemaining<60?"text-red-500":"text-amber-500"}`}>{timeRemaining!=null?formatTime(timeRemaining):"--::--"}</span>
                     </div>
                 </div>
-                <button className="text-xs bg-zinc-800 hover:bg-red-600 px-3 py-1.5 rounded text-zinc-400 hover:text-white font-bold flex transition-all items-center group gap-2 disabled:opacity-50">
+                <button onClick={()=>destroyroom()} className="text-xs bg-zinc-800 hover:bg-red-600 px-3 py-1.5 rounded text-zinc-400 hover:text-white font-bold flex transition-all items-center group gap-2 disabled:opacity-50">
                     <span className="group-hover:animate-pulse">💣 </span>
                     DESTROY NOW </button>
             </header>
@@ -112,6 +166,8 @@ const { roomId } = params as { roomId: string };
                 </div>
                 <button className="bg-zinc-800 text-zinc-400 px-6 text-sm font-bold transition-all  disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                 onClick={()=>{
+                    inputref.current?.focus()
+                    sendMessage({text:input})
                     inputref.current?.focus()
                 }}
                 disabled={!input.trim()||isPending}>

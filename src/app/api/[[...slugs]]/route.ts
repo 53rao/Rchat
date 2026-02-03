@@ -18,6 +18,22 @@ const rooms=new Elysia({prefix:"/room"})
             await redis.expire(`meta:${roomId}`,ROOM_TTL_SECONDS)
             return {roomId}
         })
+        .use(authMiddleware)
+        .get("/ttl",async ({auth})=>{
+          const ttl=await redis.ttl(`meta:${auth.roomId}`)
+          return {ttl:ttl>0?ttl:0}
+        },{query:z.object({roomId:z.string()})})
+        
+        .delete("/",async({auth})=>{
+          
+          await realtime.channel(auth.roomId).emit("chat.destroy",{ isDestroyed :true})
+          await Promise.all([
+             redis.del(auth.roomId),
+             redis.del(`meta:${auth.roomId}`),
+             redis.del(`messages:${auth.roomId}`),
+          ])
+          
+        },{query:z.object({roomId:z.string()})})
 const messages=new Elysia({prefix:"/messages"})
         .use(authMiddleware)
         .post(
@@ -67,4 +83,5 @@ const app =new Elysia({prefix:"/api"}).use(rooms).use(messages)
 
 export const GET = app.handle 
 export const POST = app.handle 
+export const DELETE=app.handle
 export type App=typeof app
